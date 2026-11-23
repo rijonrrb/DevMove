@@ -1,0 +1,27 @@
+[package]
+name = "devmove"
+version = "0.1.0"
+description = "DevMove Windows migration toolkit"
+authors = ["DevMove contributors"]
+license = ""
+repository = "https://github.com/rijonrrb/DevMove"
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "devmove_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.6" }
+
+[dependencies]
+tauri = { version = "2.12.7" }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["clock"] }
+sha2 = "0.10"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+walkdir = "2.5"
+winreg = "0.55"
