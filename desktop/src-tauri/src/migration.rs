@@ -627,12 +627,9 @@ fn create_backup_inner(request: BackupRequest) -> Result<BackupResult, String> {
 fn verify_backup_inner(path: &str) -> Result<Verification, String> {
     let file = File::open(path).map_err(|e| format!("Cannot open archive: {e}"))?;
     let mut zip = ZipArchive::new(file).map_err(|e| e.to_string())?;
-    let manifest: ArchiveManifest = {
-        let mut entry = zip.by_name("manifest.json").map_err(|e| e.to_string())?;
-        let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-        serde_json::from_slice(&bytes).map_err(|e| e.to_string())?
-    };
+    let manifest_value = read_archive_json(&mut zip, "manifest.json", 4 * 1024 * 1024)?;
+    let manifest: ArchiveManifest =
+        serde_json::from_value(manifest_value).map_err(|e| e.to_string())?;
     if manifest.schema_version != 1 {
         return Err("Unsupported archive format version".to_owned());
     }
@@ -1223,5 +1220,165 @@ mod project_backup_integration_tests {
         );
         assert!(!folder.join(".env.local").exists());
         fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestorePreview {
+    pub created_at: String,
+    pub modules: Vec<String>,
+    pub file_count: usize,
+    pub total_bytes: u64,
+    pub winget_package_ids: Vec<String>,
+    pub manual_installations: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// Read a limited amount from an archive member before JSON parsing.
+/// This prevents unexpectedly large metadata from exhausting application memory.
+fn read_archive_json(zip: &mut ZipArchive<File>, name: &str, limit: u64) -> Result<Value, String> {
+    let member = zip
+        .by_name(name)
+        .map_err(|e| format!("{name} not found: {e}"))?;
+    if member.size() > limit {
+        return Err(format!("{name} exceeds the supported metadata size"));
+    }
+    let mut bytes = Vec::new();
+    member
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("{name} exceeds the supported metadata size"));
+    }
+    serde_json::from_slice(&bytes).map_err(|e| format!("Invalid {name}: {e}"))
+}
+
+fn restore_preview_inner(archive_path: &str) -> Result<RestorePreview, String> {
+    let valid = verify_backup_inner(archive_path)?;
+    if !valid.verified {
+        return Err(format!(
+            "Backup verification failed: {}",
+            valid.errors.join("; ")
+        ));
+    }
+    let handle = File::open(archive_path).map_err(|e| e.to_string())?;
+    let mut zip = ZipArchive::new(handle).map_err(|e| e.to_string())?;
+    let manifest_value = read_archive_json(&mut zip, "manifest.json", 4 * 1024 * 1024)?;
+    let manifest: ArchiveManifest =
+        serde_json::from_value(manifest_value).map_err(|e| e.to_string())?;
+
+    let mut listed_packages: HashSet<String> = HashSet::new();
+    let mut warnings = manifest.warnings.clone();
+
+    if manifest.modules.iter().any(|module| module == "apps") {
+        match read_archive_json(&mut zip, "Applications/winget.json", 16 * 1024 * 1024) {
+            Ok(winget) => {
+                if let Some(sources) = winget.get("Sources").and_then(Value::as_array) {
+                    for source in sources {
+                        if let Some(packages) = source.get("Packages").and_then(Value::as_array) {
+                            for package in packages {
+                                if let Some(id) =
+                                    package.get("PackageIdentifier").and_then(Value::as_str)
+                                {
+                                    listed_packages.insert(id.to_lowercase());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(err) => warnings.push(format!("WinGet metadata unavailable: {err}")),
+        }
+    }
+
+    let mut winget_packages = Vec::new();
+    let mut manual_apps = Vec::new();
+    for id in &manifest.selected_apps {
+        if listed_packages.contains(&id.to_lowercase()) {
+            winget_packages.push(id.clone());
+        } else if let Some(manual) = id.strip_prefix("manual:") {
+            manual_apps.push(manual.to_owned());
+        } else {
+            manual_apps.push(id.to_owned());
+        }
+    }
+    winget_packages.sort_by_key(|v| v.to_lowercase());
+    manual_apps.sort_by_key(|v| v.to_lowercase());
+    let total_bytes = manifest
+        .files
+        .iter()
+        .fold(0u64, |sum, file| sum.saturating_add(file.bytes));
+
+    Ok(RestorePreview {
+        created_at: manifest.created_at,
+        modules: manifest.modules,
+        file_count: manifest.files.len(),
+        total_bytes,
+        winget_package_ids: winget_packages,
+        manual_installations: manual_apps,
+        warnings,
+    })
+}
+
+#[tauri::command]
+pub async fn inspect_backup(archive_path: String) -> Result<RestorePreview, String> {
+    tauri::async_runtime::spawn_blocking(move || restore_preview_inner(&archive_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod restore_preview_tests {
+    use super::*;
+
+    #[test]
+    fn restore_preview_distinguishes_winget_and_manual_apps() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!("devmove-preview-test-{stamp}"));
+        fs::create_dir_all(&folder).unwrap();
+        let archive = folder.join("backup.zip");
+        let mut zip = ZipWriter::new(File::create(&archive).unwrap());
+        let mut files = Vec::new();
+        write_json(
+            &mut zip,
+            "Applications/winget.json",
+            &json!({
+                "Sources": [{ "Packages": [{"PackageIdentifier":"Example.Editor"}] }]
+            }),
+            &mut files,
+        )
+        .unwrap();
+        let manifest = ArchiveManifest {
+            schema_version: 1,
+            created_at: "2026-11-23T10:00:00Z".into(),
+            modules: vec!["apps".into()],
+            selected_apps: vec![
+                "Example.Editor".into(),
+                "manual:Legacy App".into(),
+                "Missing.Package".into(),
+            ],
+            files,
+            warnings: vec!["Preview-only fixture".into()],
+        };
+        zip.start_file("manifest.json", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&serde_json::to_vec(&manifest).unwrap())
+            .unwrap();
+        zip.finish().unwrap();
+
+        let plan = restore_preview_inner(&archive.to_string_lossy()).unwrap();
+        assert_eq!(plan.file_count, 1);
+        assert_eq!(plan.winget_package_ids, vec!["Example.Editor"]);
+        assert_eq!(
+            plan.manual_installations,
+            vec!["Legacy App", "Missing.Package"]
+        );
+        assert_eq!(plan.warnings.len(), 1);
+        fs::remove_dir_all(folder).unwrap();
     }
 }

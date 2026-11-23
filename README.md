@@ -12,7 +12,7 @@ The project is designed primarily for Windows users and developers who rely on c
 
 ## Rust desktop preview
 
-The new Windows application is being built in [desktop/](desktop/README.md). The initial development preview provides a searchable software inventory, read-only driver diagnostics and third-party driver export, selected project-folder and configuration ZIP backups, safe extraction into a new folder, and per-file SHA-256 verification. The ZIP contains a limited set of configuration files and package metadata, not installed program binaries.
+The new Windows application is being built in [desktop/](desktop/README.md). The initial development preview provides a searchable software inventory, read-only driver diagnostics and third-party driver export, selected project-folder and configuration ZIP backups, safe extraction into a new folder, a read-only restore preview of application lists, and per-file SHA-256 verification. The ZIP contains a limited set of configuration files and package metadata, not installed program binaries.
 
 **This is an unreleased development preview, not a migration-ready product.** Database export, cloud upload, automatic restoration into Windows, and driver updates have not yet been implemented in Rust. Verified archives can be extracted to a separate staging folder.
 
@@ -27,7 +27,7 @@ The legacy prototype provides an initial graphical workflow for:
 
 **This is not yet a tested, full-system migration solution.** Some restore operations require manual steps. The prototype does not guarantee preservation of browser sign-ins, software licenses, or application secrets. Database backups require independent verification.
 
-For prototype setup and operating instructions, see [Legacy prototype guide](docs/LEGACY_PROTOTYPE_GUIDE.md). For the current Rust developer preview, see [Windows build and validation](docs/PREVIEW_BUILD.md) and the [selective project backup safety guide](docs/PROJECT_BACKUP_SAFETY.md).
+For prototype setup and operating instructions, see [Legacy prototype guide](docs/LEGACY_PROTOTYPE_GUIDE.md). For the current Rust developer preview, see [Windows build and validation](docs/PREVIEW_BUILD.md) and the [selective project backup safety guide](docs/PROJECT_BACKUP_SAFETY.md), and the [read-only restore preview](docs/RESTORE_PREVIEW.md).
 
 ## Product direction
 

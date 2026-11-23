@@ -30,6 +30,7 @@ The browser preview intentionally does not fabricate app or driver data. Native 
 - Local archive: selected VS Code settings, Chrome bookmarks/history (when accessible), Git config, tool versions, selected project folders, and application manifests.
 - ZIP verification: SHA-256 digests for each file and readable archive validation.
 - Safe ZIP extraction: recover recorded files into a new staging folder without overwriting Windows settings.
+- Read-only restore preview: verified archive summary, recorded WinGet IDs, manual reinstall entries and recorded exclusions.
 - Native destination picker and on-screen status/error feedback.
 
 ## Not yet implemented

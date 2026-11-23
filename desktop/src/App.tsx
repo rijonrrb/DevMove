@@ -8,11 +8,11 @@ import {
   RotateCcw, ScanLine, Search, Settings2, ShieldCheck, Terminal, X,
 } from 'lucide-react'
 import {
-  createArchive, desktopAvailable, exportInstalledDrivers, extractArchive, scanDeviceDrivers, scanInstalledApps,
-  selectArchive, selectDirectory, verifyArchive,
+  createArchive, desktopAvailable, exportInstalledDrivers, extractArchive, inspectArchive, scanDeviceDrivers, scanInstalledApps,
+  selectArchive, selectDirectory,
 } from './native'
 import type {
-  AppScan, BackupResult, DriverExportResult, DriverScan, ExtractionResult, ModuleId, Section,
+  AppScan, BackupResult, DriverExportResult, DriverScan, ExtractionResult, RestorePreview, ModuleId, Section,
   Verification,
 } from './types'
 import './App.css'
@@ -60,6 +60,7 @@ function App() {
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
   const [recentBackup, setRecentBackup] = useState<BackupResult | null>(null)
   const [verification, setVerification] = useState<Verification | null>(null)
+  const [restorePreview, setRestorePreview] = useState<RestorePreview | null>(null)
   const [verifiedArchivePath, setVerifiedArchivePath] = useState<string | null>(null)
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null)
   const [events, setEvents] = useState<Activity[]>([])
@@ -187,20 +188,25 @@ function App() {
     if (!desktopAvailable || busy) return
     setBusy('Verifying local archive')
     setVerification(null)
+    setRestorePreview(null)
     setVerifiedArchivePath(null)
     setExtraction(null)
     try {
       const path = await selectArchive()
       if (!path) return
-      const result = await verifyArchive(path)
-      setVerification(result)
-      if (result.verified) setVerifiedArchivePath(path)
-      addEvent(result.verified ? 'Archive verified' : 'Archive verification failed',
-        path, result.verified)
-      setMessage({ text: result.verified
-        ? 'All ' + result.filesChecked + ' recorded files passed SHA-256 verification.'
-        : result.errors.join('; '), error: !result.verified })
-    } catch (err) { setMessage({ text: getError(err), error: true }) }
+      // The preview command verifies SHA-256 once before reading any app metadata.
+      const plan = await inspectArchive(path)
+      setRestorePreview(plan)
+      setVerifiedArchivePath(path)
+      setVerification({ verified: true, filesChecked: plan.fileCount, errors: [] })
+      addEvent('Archive verified and previewed', path)
+      setMessage({ text: 'All ' + plan.fileCount + ' recorded files passed SHA-256 verification.', error: false })
+    } catch (err) {
+      const error = getError(err)
+      setVerification({ verified: false, filesChecked: 0, errors: [error] })
+      setMessage({ text: error, error: true })
+      addEvent('Archive verification failed', error, false)
+    }
     finally { setBusy(null) }
   }
   const runExtract = async () => {
@@ -450,7 +456,29 @@ function App() {
                 </div>}
               </div>
             </section>
-            <div className="notice muted-notice"><Info size={18}/> Extracting files into a separate folder is supported. Installing apps, applying settings to Windows, and database import are not yet implemented. Keep your older system intact until a full test restore succeeds.</div>
+            {restorePreview && <section className="panel restore-preview">
+              <div className="panel-head"><div><span className="section-kicker">READ-ONLY RESTORE PLAN</span><h2>Inside this verified backup</h2></div><ShieldCheck size={20} color="#718ba0"/></div>
+              <div className="restore-plan-stats">
+                <div><span>Created</span><strong>{new Date(restorePreview.createdAt).toLocaleString()}</strong></div>
+                <div><span>Recorded files</span><strong>{restorePreview.fileCount}</strong></div>
+                <div><span>Uncompressed size</span><strong>{formatBytes(restorePreview.totalBytes)}</strong></div>
+                <div><span>Backup modules</span><strong>{restorePreview.modules.join(', ') || 'None'}</strong></div>
+              </div>
+              <div className="restore-plan-cols">
+                <div className="restore-plan-col"><h3><CheckCircle2 size={17}/> WinGet package IDs <span>{restorePreview.wingetPackageIds.length}</span></h3>
+                  <p>Recorded package IDs for a future guided reinstall. Their availability on a new PC has not been verified.</p>
+                  {restorePreview.wingetPackageIds.length === 0 ? <p className="restore-empty">No WinGet package IDs found in this archive.</p>
+                    : <div className="restore-package-list">{restorePreview.wingetPackageIds.slice(0, 10).map((id) => <div key={id} className="restore-package">{id}</div>)}{restorePreview.wingetPackageIds.length > 10 && <small>+ {restorePreview.wingetPackageIds.length - 10} additional IDs</small>}</div>}
+                </div>
+                <div className="restore-plan-col"><h3><ListFilter size={17}/> Manual reinstall list <span>{restorePreview.manualInstallations.length}</span></h3>
+                  <p>These entries require manual review or a separate installer. No automatic installation occurs.</p>
+                  {restorePreview.manualInstallations.length === 0 ? <p className="restore-empty">No manual installations listed.</p>
+                    : <div className="restore-package-list">{restorePreview.manualInstallations.slice(0, 10).map((name, i) => <div key={i} className="restore-package">{name}</div>)}{restorePreview.manualInstallations.length > 10 && <small>+ {restorePreview.manualInstallations.length - 10} additional entries</small>}</div>}
+                </div>
+              </div>
+              {restorePreview.warnings.length > 0 && <div className="backup-warnings"><AlertCircle size={16}/><div><strong>Archive notes and exclusions</strong>{restorePreview.warnings.map((warning, i) => <p key={i}>{warning}</p>)}</div></div>}
+            </section>}
+            <div className="notice muted-notice"><Info size={18}/> This plan is read-only. You can extract to a new staging folder, but no apps are installed and no existing Windows settings are changed. Full automated restore and database import are still in development.</div>
           </>}
           {page === 'history' && <>
             <PageHead kicker="CURRENT SESSION" title="Activity log" desc="A record of scans, backups and checks performed during this app session. Persistent history is planned." />
