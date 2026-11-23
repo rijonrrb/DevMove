@@ -1,6 +1,6 @@
 [package]
 name = "devmove"
-version = "0.1.0"
+version = "0.1.1"
 description = "DevMove Windows migration toolkit"
 authors = ["DevMove contributors"]
 license = ""
