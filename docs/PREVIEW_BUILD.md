@@ -1,6 +1,6 @@
 # Windows preview build and validation
 
-DevMove v0.1.1 is an **unreleased developer preview**. It has not yet passed a complete clean-Windows migration test. Do not replace independent backups with this tool.
+DevMove v0.1.2 is a **developer preview**, not a stable migration-ready release. It has not yet passed a complete clean-Windows migration test. Do not replace independent backups with this tool.
 
 ## Prepare a development workstation
 
