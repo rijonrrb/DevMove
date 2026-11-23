@@ -3,6 +3,11 @@
 ## Purpose
 Build a native Windows migration and driver-management application, owned and maintained as first-party software. No external driver-updater GUI is required.
 
+## Research and cloud backup design
+- [Open-source backup comparison](docs/OPEN_SOURCE_RESEARCH.md)
+- [Local ZIP and Google Drive architecture](docs/CLOUD_BACKUP_ARCHITECTURE.md)
+- These documents specify proposed Rust features, not implemented features in the PowerShell prototype.
+
 ## Version-control workflow
 - `main`: reviewed stable snapshots.
 - `feature/*`: small, scoped features; push frequently.
