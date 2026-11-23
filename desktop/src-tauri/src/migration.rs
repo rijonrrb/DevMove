@@ -483,3 +483,46 @@ pub async fn verify_backup(path: String) -> Result<Verification, String> {
     tauri::async_runtime::spawn_blocking(move || verify_backup_inner(&path))
         .await.map_err(|e| e.to_string())?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_matching_normalizes_names() {
+        assert_eq!(normalize("Visual Studio Code"), "visualstudiocode");
+        assert_eq!(normalize("7-Zip (64-bit)"), "7zip64bit");
+    }
+
+    #[test]
+    fn zip_round_trip_verifies_file_hashes() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("devmove-test-{stamp}"));
+        fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("sample.txt");
+        fs::write(&source, b"DevMove archive integrity test").unwrap();
+        let archive = dir.join("sample.zip");
+        {
+            let mut zip = ZipWriter::new(File::create(&archive).unwrap());
+            let mut files = Vec::new();
+            let mut warnings = Vec::new();
+            add_file(&mut zip, &source, "sample.txt".into(), &mut files, &mut warnings).unwrap();
+            assert!(warnings.is_empty());
+            let manifest = ArchiveManifest {
+                schema_version: 1,
+                created_at: "2026-11-23T00:00:00Z".into(),
+                modules: vec!["test".into()],
+                selected_apps: Vec::new(),
+                files,
+                warnings,
+            };
+            zip.start_file("manifest.json", SimpleFileOptions::default()).unwrap();
+            zip.write_all(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+            zip.finish().unwrap();
+        }
+        let check = verify_backup_inner(archive.to_str().unwrap()).unwrap();
+        assert!(check.verified, "{:?}", check.errors);
+        assert_eq!(check.files_checked, 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+}
