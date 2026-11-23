@@ -530,7 +530,7 @@ function App() {
           </>}
           {page === 'settings' && <>
             <PageHead kicker="APPLICATION" title="About DevMove" desc="An independent Windows migration project under active development." />
-            <section className="panel settings-panel"><div className="settings-section"><span>Application</span><strong>DevMove Preview 0.1.1</strong></div>
+            <section className="panel settings-panel"><div className="settings-section"><span>Application</span><strong>DevMove Preview 0.1.2</strong></div>
               <div className="settings-section"><span>Framework</span><strong>Rust · Tauri 2 · React · TypeScript</strong></div>
               <div className="settings-section"><span>Default storage</span><strong>Local folder of your choice</strong></div>
               <div className="settings-section"><span>Backup format</span><strong>ZIP, SHA-256 manifest</strong></div>
