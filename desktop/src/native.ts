@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import type { AppScan, BackupRequest, BackupResult, DriverScan, ExtractionResult, Verification } from './types'
+import type { AppScan, BackupRequest, BackupResult, DriverScan, DriverExportResult, ExtractionResult, Verification } from './types'
 
 export const desktopAvailable = isTauri()
 
@@ -9,6 +9,9 @@ export async function scanInstalledApps(): Promise<AppScan> {
 }
 export async function scanDeviceDrivers(): Promise<DriverScan> {
   return invoke<DriverScan>('scan_drivers')
+}
+export async function exportInstalledDrivers(destination: string): Promise<DriverExportResult> {
+  return invoke<DriverExportResult>('export_drivers', { destination })
 }
 export async function createArchive(request: BackupRequest): Promise<BackupResult> {
   return invoke<BackupResult>('create_backup', { request })

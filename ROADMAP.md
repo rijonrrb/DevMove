@@ -6,6 +6,7 @@ Build a native Windows migration and driver-management application, owned and ma
 ## Research and cloud backup design
 - [Open-source backup comparison](docs/OPEN_SOURCE_RESEARCH.md)
 - [Local ZIP and Google Drive architecture](docs/CLOUD_BACKUP_ARCHITECTURE.md)
+- [Driver diagnostics and safe export](docs/DRIVER_SAFETY.md)
 - These documents specify proposed Rust features, not implemented features in the PowerShell prototype.
 
 ## Version-control workflow
