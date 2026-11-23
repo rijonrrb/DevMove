@@ -27,7 +27,7 @@ The legacy prototype provides an initial graphical workflow for:
 
 **This is not yet a tested, full-system migration solution.** Some restore operations require manual steps. The prototype does not guarantee preservation of browser sign-ins, software licenses, or application secrets. Database backups require independent verification.
 
-For prototype setup and operating instructions, see [Legacy prototype guide](docs/LEGACY_PROTOTYPE_GUIDE.md).
+For prototype setup and operating instructions, see [Legacy prototype guide](docs/LEGACY_PROTOTYPE_GUIDE.md). For the current Rust developer preview, see [Windows build and validation](docs/PREVIEW_BUILD.md).
 
 ## Product direction
 

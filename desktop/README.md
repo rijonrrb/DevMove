@@ -48,4 +48,4 @@ ZIP archives in this preview are **not encrypted** and may contain sensitive con
 - src-tauri/src/migration.rs: Windows application/device inventory and archive routines.
 - src-tauri/capabilities/: desktop permissions.
 
-See the [repository roadmap](../ROADMAP.md) and [cloud architecture specification](../docs/CLOUD_BACKUP_ARCHITECTURE.md) for future milestones.
+See [Windows build and preview validation](../docs/PREVIEW_BUILD.md), the [repository roadmap](../ROADMAP.md) and [cloud architecture specification](../docs/CLOUD_BACKUP_ARCHITECTURE.md) for future milestones.

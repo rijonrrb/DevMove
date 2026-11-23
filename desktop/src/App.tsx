@@ -435,7 +435,7 @@ function App() {
                   <div><strong>{event.title}</strong><small>{event.detail}</small></div><time>{event.time}</time></div>)}</section>
           </>}
           {page === 'settings' && <>
-            <PageHead kicker="APPLICATION" title="About DevMove" desc="An independent, open-source Windows migration project under active development." />
+            <PageHead kicker="APPLICATION" title="About DevMove" desc="An independent Windows migration project under active development." />
             <section className="panel settings-panel"><div className="settings-section"><span>Application</span><strong>DevMove Preview 0.1.0</strong></div>
               <div className="settings-section"><span>Framework</span><strong>Rust · Tauri 2 · React · TypeScript</strong></div>
               <div className="settings-section"><span>Default storage</span><strong>Local folder of your choice</strong></div>
