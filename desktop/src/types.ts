@@ -1,5 +1,5 @@
 export type Section = 'overview' | 'backup' | 'applications' | 'drivers' | 'cloud' | 'restore' | 'history' | 'settings'
-export type ModuleId = 'apps' | 'vscode' | 'chrome' | 'git' | 'node'
+export type ModuleId = 'apps' | 'vscode' | 'chrome' | 'git' | 'node' | 'projects'
 
 export interface InstalledApp {
   name: string
@@ -38,6 +38,7 @@ export interface BackupRequest {
   destination: string
   modules: ModuleId[]
   appIds: string[]
+  customFolders: string[]
 }
 
 export interface BackupResult {

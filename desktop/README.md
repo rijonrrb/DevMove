@@ -27,7 +27,7 @@ The browser preview intentionally does not fabricate app or driver data. Native 
 - Installed applications: WinGet export merged with Windows uninstall inventory, searchable selection and manual-reinstall distinction.
 - Driver diagnostics: read-only signed-driver inventory and Windows PnP problem codes, including devices without detected signed drivers.
 - Driver export: explicitly selected Windows folder for exporting installed third-party driver packages using built-in PnPUtil. Requires applicable Windows permissions; no drivers are changed.
-- Local archive: selected VS Code settings, Chrome bookmarks/history (when accessible), Git config, tool versions, and selected application manifests.
+- Local archive: selected VS Code settings, Chrome bookmarks/history (when accessible), Git config, tool versions, selected project folders, and application manifests.
 - ZIP verification: SHA-256 digests for each file and readable archive validation.
 - Safe ZIP extraction: recover recorded files into a new staging folder without overwriting Windows settings.
 - Native destination picker and on-screen status/error feedback.
@@ -40,7 +40,7 @@ The browser preview intentionally does not fabricate app or driver data. Native 
 - Automatic driver updates, compatibility checks, and restore-point creation. Driver package export is implemented separately and does not install drivers.
 - Persisted backup history and durable background jobs.
 
-ZIP archives in this preview are **not encrypted** and may contain sensitive configuration. Use a private, secure destination and retain an independently tested backup before reinstalling Windows.
+ZIP archives in this preview are **not encrypted** and may contain sensitive configuration. Project folder backups exclude common credential files, dependencies, and generated folders, but these exclusions cannot detect every secret. Use a private, secure destination and retain an independently tested backup before reinstalling Windows. Read the [project-folder backup safety guide](../docs/PROJECT_BACKUP_SAFETY.md).
 
 ## Code layout
 

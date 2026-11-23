@@ -35,6 +35,7 @@ const modules: { id: ModuleId; name: string; details: string; icon: ElementType 
   { id: 'chrome', name: 'Google Chrome', details: 'Bookmarks and available history; not sessions or passwords', icon: Folder },
   { id: 'git', name: 'Git configuration', details: 'Global Git configuration and ignore rules', icon: Terminal },
   { id: 'node', name: 'Developer tool versions', details: 'Installed Node.js, npm, PHP and Git versions', icon: Cpu },
+  { id: 'projects', name: 'My project folders', details: 'Explicitly selected source folders, excluding dependencies and secrets', icon: FolderOpen },
 ]
 
 type Activity = { title: string; detail: string; time: string; success: boolean }
@@ -54,6 +55,7 @@ function App() {
   const [driverSearch, setDriverSearch] = useState('')
   const [onlySupported, setOnlySupported] = useState(false)
   const [destination, setDestination] = useState('')
+  const [customFolders, setCustomFolders] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
   const [recentBackup, setRecentBackup] = useState<BackupResult | null>(null)
@@ -127,6 +129,23 @@ function App() {
       addEvent('Driver export failed', getError(err), false)
     } finally { setBusy(null) }
   }
+  const addProjectFolder = async () => {
+    if (!desktopAvailable || busy) return
+    try {
+      const selected = await selectDirectory()
+      if (!selected) return
+      if (customFolders.some((folder) => folder.toLowerCase() === selected.toLowerCase())) return
+      if (customFolders.length >= 8) {
+        setMessage({ text: 'You can add up to 8 project folders per backup.', error: true })
+        return
+      }
+      setCustomFolders((previous) => [...previous, selected])
+      setSelectedModules((previous) => new Set(previous).add('projects'))
+    } catch (err) { setMessage({ text: getError(err), error: true }) }
+  }
+  const removeProjectFolder = (path: string) => {
+    setCustomFolders((previous) => previous.filter((folder) => folder !== path))
+  }
   const pickDestination = async () => {
     try {
       const folder = await selectDirectory()
@@ -143,6 +162,10 @@ function App() {
       setMessage({ text: 'Select at least one backup category.', error: true })
       return
     }
+    if (selectedModules.has('projects') && customFolders.length === 0) {
+      setMessage({ text: 'Add at least one project folder or deselect My project folders.', error: true })
+      return
+    }
     setBusy('Creating and verifying ZIP archive')
     setMessage(null)
     try {
@@ -150,6 +173,7 @@ function App() {
         destination,
         modules: Array.from(selectedModules),
         appIds: [...selectedIds],
+        customFolders,
       })
       setRecentBackup(result)
       addEvent('Local archive verified', result.archivePath)
@@ -262,7 +286,7 @@ function App() {
                 <p className="panel-sub">A selective, local ZIP backup is available in this early Rust build.</p>
                 <div className="step-list">
                   <Step n="01" title="Review installed apps" text="Pick packages to document for a clean reinstall." ready={apps !== null} />
-                  <Step n="02" title="Choose backup modules" text="Capture editor settings, browser history and development setup." ready={selectedModules.size > 0} />
+                  <Step n="02" title="Choose backup modules" text="Capture editor settings, developer tools and selected project folders." ready={selectedModules.size > 0} />
                   <Step n="03" title="Create and verify archive" text="Save a ZIP archive with a SHA-256 manifest." ready={recentBackup !== null} />
                 </div>
                 <button className="inline-link" onClick={() => setPage('backup')}>Configure backup <ArrowRight size={16} /></button>
@@ -307,7 +331,7 @@ function App() {
                     </label>
                   ))}
                 </div>
-                <div className="unavailable-module"><Database size={18}/><div><strong>XAMPP databases & full project migration</strong><small>Planned for a later, independently tested build.</small></div><span>Planned</span></div>
+                <div className="project-picker"><div className="project-picker-header"><div><strong>Selected project folders</strong><small>Up to 8 folders · no automatic disk-wide scan</small></div><button className="btn btn-secondary" type="button" onClick={addProjectFolder} disabled={!desktopAvailable || !!busy}><FolderOpen size={15}/> Add folder</button></div>{customFolders.length === 0 ? <p>No project folders selected.</p> : customFolders.map((folder) => <div className="project-folder" key={folder}><Folder size={17}/><span title={folder}>{folder}</span><button type="button" aria-label={'Remove ' + folder} onClick={() => removeProjectFolder(folder)}><X size={16}/></button></div>)}<p className="project-caution">Dependencies, generated files, common credentials and links are excluded. ZIP backups are not encrypted; review their contents before sharing.</p></div><div className="unavailable-module"><Database size={18}/><div><strong>XAMPP database export and automatic project restore</strong><small>Planned for a later, independently tested build.</small></div><span>Planned</span></div>
               </section>
               <section className="panel right-panel">
                 <div className="panel-head"><h2>Destination</h2><HardDrive color="#7b8794" size={20} /></div>
@@ -323,15 +347,16 @@ function App() {
                 <div className="separator" />
                 <div className="summary-line"><span>Archive format</span><strong>ZIP · SHA-256 verified</strong></div>
                 <div className="summary-line"><span>Software selection</span><strong>{selectedIds.size} chosen</strong></div>
+                <div className="summary-line"><span>Project folders</span><strong>{selectedModules.has('projects') ? customFolders.length : 0} selected</strong></div>
                 <div className="summary-line"><span>Privacy</span><strong>Local, unencrypted</strong></div>
                 <div className="warning-plain"><AlertCircle size={16}/> ZIP archives are not encrypted in this build. Do not upload them publicly or store sensitive data without protection.</div>
                 <button className="btn btn-primary btn-full" disabled={!desktopAvailable || !!busy || !destination.trim()} onClick={runBackup}>
                   {busy ? <LoaderCircle size={17} className="spin" /> : <FileArchive size={17}/>}
                   {busy || 'Create and verify backup'}
                 </button>
-                {recentBackup && <div className="backup-result">
+                {recentBackup && <><div className="backup-result">
                   <CheckCircle2 size={18}/><div><strong>Last archive verified</strong><small>{recentBackup.fileCount} files · {formatBytes(recentBackup.bytesWritten)}</small><span title={recentBackup.archivePath}>{recentBackup.archivePath}</span></div>
-                </div>}
+                </div>{recentBackup.warnings.length > 0 && <div className="backup-warnings"><AlertCircle size={16}/><div><strong>Backup completed with exclusions or warnings</strong>{recentBackup.warnings.map((warning, i) => <p key={i}>{warning}</p>)}</div></div>}</>}
                 <button className="inline-link" onClick={() => setPage('applications')}>Review individual applications <ArrowRight size={16}/></button>
               </section>
             </div>
