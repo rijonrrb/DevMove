@@ -1,0 +1,31 @@
+# Runtime output and backups (never commit personal data)
+_runtime/
+DevMove_*/
+*.sql
+*.bak
+*.log
+*.zip
+*.7z
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+# Sensitive folders and local Windows metadata
+Sensitive/
+Drivers/Exported/
+.vs/
+.vscode/
+Thumbs.db
+Desktop.ini
+# Rust / Tauri build artifacts for upcoming migration
+/target/
+/src-tauri/target/
+/node_modules/
+/dist/
+*.exe
+*.msi
+*.msix
+*.pfx
+*.p12
