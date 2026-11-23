@@ -59,6 +59,8 @@ pub struct BackupRequest {
     pub destination: String,
     pub modules: Vec<String>,
     pub app_ids: Vec<String>,
+    #[serde(default)]
+    pub custom_folders: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -418,7 +420,7 @@ fn create_backup_inner(request: BackupRequest) -> Result<BackupResult, String> {
     if request.modules.is_empty() {
         return Err("Select at least one backup category".to_owned());
     }
-    let allowed: HashSet<&str> = ["apps", "vscode", "chrome", "git", "node"]
+    let allowed: HashSet<&str> = ["apps", "vscode", "chrome", "git", "node", "projects"]
         .into_iter()
         .collect();
     if request
@@ -430,6 +432,7 @@ fn create_backup_inner(request: BackupRequest) -> Result<BackupResult, String> {
             "One or more backup categories are not supported by the Rust preview".to_owned(),
         );
     }
+    let project_folders = validate_project_folders(&request, &destination)?;
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S_%3f").to_string();
     let filename = format!("DevMove_{timestamp}.zip");
     let archive_path = destination.join(filename);
@@ -567,6 +570,11 @@ fn create_backup_inner(request: BackupRequest) -> Result<BackupResult, String> {
                 &json!(versions),
                 &mut files,
             )?;
+        }
+        if modules.contains("projects") {
+            for (index, source) in project_folders.iter().enumerate() {
+                add_project_tree(&mut zip, source, index, &mut files, &mut warnings)?;
+            }
         }
         if files.is_empty() {
             warnings.push("No source files were found for the selected categories".into());
@@ -894,4 +902,326 @@ pub async fn export_drivers(destination: String) -> Result<DriverExportResult, S
     tauri::async_runtime::spawn_blocking(move || export_drivers_inner(&destination))
         .await
         .map_err(|e| e.to_string())?
+}
+
+const MAX_PROJECT_FOLDERS: usize = 8;
+const MAX_PROJECT_FILES: usize = 50_000;
+const MAX_PROJECT_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+const MAX_SINGLE_PROJECT_FILE: u64 = 2 * 1024 * 1024 * 1024;
+
+fn validate_project_folders(
+    request: &BackupRequest,
+    destination: &Path,
+) -> Result<Vec<PathBuf>, String> {
+    if !request.modules.iter().any(|module| module == "projects") {
+        return Ok(Vec::new());
+    }
+    if request.custom_folders.is_empty() {
+        return Err("Choose at least one project folder, or deselect Projects".into());
+    }
+    if request.custom_folders.len() > MAX_PROJECT_FOLDERS {
+        return Err(format!(
+            "Choose no more than {MAX_PROJECT_FOLDERS} project folders per backup"
+        ));
+    }
+    let dest = fs::canonicalize(destination).map_err(|e| format!("Invalid destination: {e}"))?;
+    let dest_casefold = PathBuf::from(dest.to_string_lossy().to_lowercase());
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut normalized: Vec<PathBuf> = Vec::new();
+
+    for raw in &request.custom_folders {
+        let path = PathBuf::from(raw);
+        if fs::symlink_metadata(&path)
+            .map_err(|e| format!("Cannot access project folder: {e}"))?
+            .file_type()
+            .is_symlink()
+        {
+            return Err("Selecting a symlink as a project root is not supported".into());
+        }
+        let source =
+            fs::canonicalize(&path).map_err(|e| format!("Cannot resolve project folder: {e}"))?;
+        if !source.is_dir() || source.parent().is_none() {
+            return Err(format!(
+                "Select a regular project directory, not a drive root: {}",
+                path.display()
+            ));
+        }
+        let folded = PathBuf::from(source.to_string_lossy().to_lowercase());
+        if dest_casefold.starts_with(&folded) || folded.starts_with(&dest_casefold) {
+            return Err(format!(
+                "Backup destination and project folder must not contain each other: {}",
+                source.display()
+            ));
+        }
+        if normalized
+            .iter()
+            .any(|known| known.starts_with(&folded) || folded.starts_with(known))
+        {
+            return Err(format!(
+                "Selected project folders must not overlap: {}",
+                source.display()
+            ));
+        }
+        normalized.push(folded);
+        roots.push(source);
+    }
+    Ok(roots)
+}
+
+fn project_excluded(path: &Path, is_dir: bool) -> bool {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase();
+    if is_dir {
+        return matches!(
+            name.as_str(),
+            ".git"
+                | "node_modules"
+                | "vendor"
+                | "dist"
+                | "build"
+                | ".next"
+                | "target"
+                | ".cache"
+                | "__pycache__"
+                | ".venv"
+                | ".idea"
+                | ".vs"
+                | ".terraform"
+                | ".ssh"
+                | ".aws"
+        );
+    }
+    let sensitive = name == ".env"
+        || name.starts_with(".env.")
+        || name.starts_with(".secrets")
+        || name == ".npmrc"
+        || name == ".pypirc"
+        || name == "credentials.json"
+        || name == "service-account.json"
+        || name == "service_account.json"
+        || name == "id_rsa"
+        || name == "id_ed25519";
+    sensitive
+        || [".pem", ".pfx", ".key", ".p12", ".p8", ".kdbx"]
+            .iter()
+            .any(|ext| name.ends_with(ext))
+}
+
+fn add_project_tree(
+    zip: &mut ZipWriter<File>,
+    source: &Path,
+    index: usize,
+    files: &mut Vec<ArchivedFile>,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
+    let label = source.file_name().unwrap_or_default().to_string_lossy();
+    let safe_label: String = label
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(50)
+        .collect();
+    let prefix = format!(
+        "Projects/{:02}_{}",
+        index + 1,
+        if safe_label.is_empty() {
+            "project"
+        } else {
+            &safe_label
+        }
+    );
+
+    let omitted = std::cell::Cell::new(0usize);
+    let mut count = 0usize;
+    let mut total_bytes = 0u64;
+    let iter = WalkDir::new(source)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            let forbidden = entry.path() != source
+                && (entry.file_type().is_symlink()
+                    || project_excluded(entry.path(), entry.file_type().is_dir()));
+            if forbidden {
+                omitted.set(omitted.get() + 1);
+            }
+            !forbidden
+        });
+
+    for entry in iter {
+        let entry = entry.map_err(|e| format!("Error reading project tree: {e}"))?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if project_excluded(entry.path(), false) {
+            omitted.set(omitted.get() + 1);
+            continue;
+        }
+        let len = entry.metadata().map_err(|e| e.to_string())?.len();
+        if len > MAX_SINGLE_PROJECT_FILE {
+            omitted.set(omitted.get() + 1);
+            warnings.push(format!(
+                "Skipped oversized project file: {}",
+                entry.path().display()
+            ));
+            continue;
+        }
+        count += 1;
+        if count > MAX_PROJECT_FILES || total_bytes.saturating_add(len) > MAX_PROJECT_BYTES {
+            return Err(format!(
+                "Project backup safety limit exceeded ({} files or {} GB). Select a smaller project set.",
+                MAX_PROJECT_FILES,
+                MAX_PROJECT_BYTES / (1024 * 1024 * 1024)
+            ));
+        }
+        total_bytes += len;
+        let relative = entry
+            .path()
+            .strip_prefix(source)
+            .map_err(|e| e.to_string())?;
+        let archive_path = format!("{prefix}/{}", relative.to_string_lossy().replace('\\', "/"));
+        add_file(zip, entry.path(), archive_path, files, warnings)?;
+    }
+    if omitted.get() > 0 {
+        warnings.push(format!(
+            "{prefix}: skipped {} generated/dependency directories, credential-like files or links",
+            omitted.get()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+
+    #[test]
+    fn project_filter_omits_credential_files_and_generated_dependencies() {
+        assert!(project_excluded(Path::new(".env.production"), false));
+        assert!(project_excluded(Path::new("private.pem"), false));
+        assert!(project_excluded(Path::new("node_modules"), true));
+        assert!(!project_excluded(Path::new("package.json"), false));
+        assert!(!project_excluded(Path::new("src"), true));
+    }
+
+    #[test]
+    fn project_archiving_skips_sensitive_files_and_can_verify() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let work = std::env::temp_dir().join(format!("devmove-project-test-{stamp}"));
+        let source = work.join("sample_project");
+        let dest = work.join("backup");
+        fs::create_dir_all(source.join("src")).unwrap();
+        fs::create_dir_all(source.join("node_modules")).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(source.join("src").join("index.ts"), b"export const ok=true").unwrap();
+        fs::write(source.join(".env"), b"SECRET=should-not-be-copied").unwrap();
+        fs::write(source.join("node_modules").join("index.js"), b"generated").unwrap();
+        let request = BackupRequest {
+            destination: dest.to_string_lossy().to_string(),
+            modules: vec!["projects".into()],
+            app_ids: Vec::new(),
+            custom_folders: vec![source.to_string_lossy().to_string()],
+        };
+        let folders = validate_project_folders(&request, &dest).unwrap();
+        let archive = dest.join("project.zip");
+        let mut zip = ZipWriter::new(File::create(&archive).unwrap());
+        let mut files = Vec::new();
+        let mut warnings = Vec::new();
+        add_project_tree(&mut zip, &folders[0], 0, &mut files, &mut warnings).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "Projects/01_sample_project/src/index.ts");
+        assert!(!warnings.is_empty());
+        let manifest = ArchiveManifest {
+            schema_version: 1,
+            created_at: Utc::now().to_rfc3339(),
+            modules: request.modules,
+            selected_apps: Vec::new(),
+            files,
+            warnings,
+        };
+        zip.start_file("manifest.json", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&serde_json::to_vec(&manifest).unwrap())
+            .unwrap();
+        zip.finish().unwrap();
+        let checked = verify_backup_inner(&archive.to_string_lossy()).unwrap();
+        assert!(checked.verified, "{:?}", checked.errors);
+        fs::remove_dir_all(work).unwrap();
+    }
+
+    #[test]
+    fn project_destination_inside_source_is_rejected() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("devmove-overlap-test-{stamp}"));
+        let source = base.join("source");
+        let destination = source.join("backups");
+        fs::create_dir_all(&destination).unwrap();
+        let request = BackupRequest {
+            destination: destination.to_string_lossy().to_string(),
+            modules: vec!["projects".into()],
+            app_ids: Vec::new(),
+            custom_folders: vec![source.to_string_lossy().to_string()],
+        };
+        assert!(validate_project_folders(&request, &destination).is_err());
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod project_backup_integration_tests {
+    use super::*;
+
+    #[test]
+    fn selected_project_backup_verify_and_extract_round_trip() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("devmove-project-flow-{stamp}"));
+        let project = base.join("important-project");
+        let dest = base.join("archives");
+        fs::create_dir_all(project.join("src")).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(
+            project.join("src").join("main.ts"),
+            b"console.log('backup roundtrip')",
+        )
+        .unwrap();
+        fs::write(project.join(".env.local"), b"DO_NOT_EXPORT=true").unwrap();
+        let request = BackupRequest {
+            destination: dest.to_string_lossy().to_string(),
+            modules: vec!["projects".into()],
+            app_ids: Vec::new(),
+            custom_folders: vec![project.to_string_lossy().to_string()],
+        };
+        let backup = create_backup_inner(request).unwrap();
+        assert_eq!(backup.file_count, 1);
+        assert!(!backup.warnings.is_empty());
+        let validation = verify_backup_inner(&backup.archive_path).unwrap();
+        assert!(validation.verified);
+        let extracted =
+            extract_archive_inner(&backup.archive_path, &base.to_string_lossy()).unwrap();
+        let folder = PathBuf::from(extracted.output_directory)
+            .join("Projects")
+            .join("01_important-project");
+        assert_eq!(
+            fs::read(folder.join("src").join("main.ts")).unwrap(),
+            b"console.log('backup roundtrip')"
+        );
+        assert!(!folder.join(".env.local").exists());
+        fs::remove_dir_all(base).unwrap();
+    }
 }
