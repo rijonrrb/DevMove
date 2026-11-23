@@ -24,6 +24,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -45,6 +47,9 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Check native Rust backend
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked
