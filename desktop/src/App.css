@@ -58,3 +58,6 @@
 .restore-package-list small{font-size:10px;color:#8b99a8}
 .restore-empty{border:1px dashed #e0e8ef;border-radius:7px;padding:10px;color:#94a3b3!important;margin-top:14px}
 @media(max-width:1150px){.restore-plan-stats{grid-template-columns:repeat(2,1fr)}.restore-plan-cols{grid-template-columns:1fr}}
+
+.sql-preview{margin-top:20px;padding-top:22px;border-top:1px solid #e8edf2}
+.sql-preview .restore-package-list{max-height:160px;overflow-y:auto}

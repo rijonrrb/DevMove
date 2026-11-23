@@ -27,6 +27,17 @@ export async function extractArchive(archivePath: string, destination: string): 
   return invoke<ExtractionResult>('extract_archive', { archivePath, destination })
 }
 
+export async function selectSqlExports(): Promise<string[]> {
+  const result = await open({
+    title: 'Choose existing SQL export files',
+    directory: false,
+    multiple: true,
+    filters: [{ name: 'SQL dumps (.sql, .sql.gz)', extensions: ['sql', 'gz'] }],
+  })
+  if (typeof result === 'string') return [result]
+  return Array.isArray(result) ? result : []
+}
+
 export async function selectDirectory(): Promise<string | null> {
   const result = await open({ directory: true, multiple: false, title: 'Choose a backup destination' })
   return typeof result === 'string' ? result : null
