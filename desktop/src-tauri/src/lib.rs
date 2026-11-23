@@ -1,0 +1,16 @@
+mod migration;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            migration::scan_apps,
+            migration::scan_drivers,
+            migration::create_backup,
+            migration::verify_backup,
+            migration::extract_archive
+        ])
+        .run(tauri::generate_context!())
+        .expect("Failed to launch DevMove");
+}

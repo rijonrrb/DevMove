@@ -1,58 +1,71 @@
-# DevMove Toolkit - Windows Developer Migration
+# DevMove
 
-Run by double-clicking **Launch DevMove.bat**. Native Windows GUI uses built-in PowerShell 5.1 and WinForms; no compiler needed.
+**A Windows migration and recovery toolkit for moving essential applications, development environments, and personal settings to a clean installation.**
 
-## BEFORE reinstalling Windows
+> **Status: Early development.** The repository currently contains an experimental PowerShell/WinForms prototype. The next application is being developed with Rust, Tauri, React, and TypeScript. Features described as planned are not yet available.
 
-1. Choose Backup mode and select the modules you want.
-2. Choose **D:, E:, or preferably an external drive** as the output directory. Backups on C: may be erased. Repartitioning the *whole disk* can also erase D:!
-3. Close Chrome completely for browser history; if using databases, start XAMPP MySQL/MariaDB first.
-4. Enter MySQL username/password in the GUI if necessary; password is never written to its config or logs.
-5. Press Scan my PC, then Start backup, and review progress plus warnings.
-6. Each run creates a DevMove_YYYYMMDD_HHMMSS folder containing a manifest, backup-result.json and backup-log.txt.
-7. **Copy this entire DevMove Toolkit folder to the backup drive too**, otherwise the tool itself will be lost when Windows is reinstalled.
-8. Verify your SQL and project files before formatting anything. Keep a second copy if possible.
+## Overview
 
-## CONTENT AND RESTORE
+Reinstalling Windows should not mean rebuilding a working environment from memory. DevMove aims to make migrations deliberate and verifiable: select what matters, capture configuration and application inventories, store a recoverable backup, and restore with a clear understanding of what will change.
 
-| Module | Captures | Restores |
-| --- | --- | --- |
-| Apps | WinGet apps.json | WinGet installs supported apps, may require manual prompts |
-| VS Code | settings, snippets, profiles, extension lists | Settings + reinstall extensions. Also turn on VS Code Settings Sync |
-| Chrome | per-profile bookmarks, history, favicons, if accessible | File copy only after closing Chrome; use Google Chrome Sync for passwords, extensions, preferences |
-| XAMPP settings | php.ini, Apache and MySQL config | Manual compare/merge; do not overwrite newer config |
-| Databases | all-databases.sql using mysqldump | **Manual import only** after checking MySQL/MariaDB version and database contents |
-| Node/PHP | versions and global npm package inventory | Reinstall manually, refer to inventory |
-| Git | global Git config | Copies files to your new user profile |
-| Projects | XAMPP htdocs or additional folder, skipping node_modules, vendor, build caches | Manual relocation; reinstall packages |
-| SSH | sensitive .ssh directory | Manual restore and check permissions; disabled by default |
+The project is designed primarily for Windows users and developers who rely on customized editors, command-line tools, browser profiles, local projects, and databases.
 
-## CHROME AND LOGINS - IMPORTANT
+## Rust desktop preview
 
-Enable Chrome Sync and Google Password Manager in your OLD Windows account **before wiping it**. A raw Chrome folder backup cannot reliably move passwords, passkeys, saved sessions or 2FA to a new Windows account (Windows DPAPI protection). The app intentionally does not extract cookies, raw passwords, profile encryption keys or authentication tokens. You may need to sign in to websites again. Chrome must be fully closed to copy History successfully; inspect the warnings and the actual file.
+The new Windows application is being built in [desktop/](desktop/README.md). The initial development preview provides a searchable software inventory, read-only driver diagnostics, selective local ZIP exports, and per-file SHA-256 archive verification. The ZIP contains a limited set of configuration files and package metadata, not installed program binaries.
 
-VS Code Settings Sync is also recommended. Extension authentication, workspaceStorage, license state and sign-in tokens may not migrate.
+**This is an unreleased development preview, not a migration-ready product.** Database export, cloud upload, automatic restoration into Windows, and driver updates have not yet been implemented in Rust. Verified archives can be extracted to a separate staging folder.
 
-## DATABASE SAFETY
+## Current prototype
 
-The app uses XAMPP mysqldump with --all-databases, --routines, --events, --triggers, --single-transaction. It can include MySQL/MariaDB internal system schemas and may not be compatible across versions. Do not blindly import the entire dump into another version. Manually review/restore user schemas. Check the SQL output is nonempty and test on an isolated database first. Non-transactional tables require extra care.
+The legacy prototype provides an initial graphical workflow for:
 
-## RESTORE
+- Choosing backup categories, including VS Code settings, Chrome bookmarks/history, Git configuration, XAMPP configuration, and development-tool inventories.
+- Exporting application inventories through Windows Package Manager (WinGet).
+- Creating MySQL/MariaDB SQL exports and copying selected project files.
+- Saving a backup manifest and task logs, with an initial restore workflow for supported settings.
 
-1. Install clean Windows, updates, VS Code, Chrome, Git, Node and compatible XAMPP as needed.
-2. Copy both the toolkit and your DevMove_... backup folder to the new PC.
-3. Launch the toolkit, switch to Restore mode, browse to the backup folder containing manifest.json, choose tasks and click Start restore.
-4. Close Chrome and VS Code before restoring their files. Be careful not to overwrite data after sync has started.
-5. XAMPP, database SQL, project folders, SSH keys and npm packages are *manual restore* items (the GUI locates them and logs what to do).
-6. Sign in where required; test at least one website/project and database before considering migration complete.
+**This is not yet a tested, full-system migration solution.** Some restore operations require manual steps. The prototype does not guarantee preservation of browser sign-ins, software licenses, or application secrets. Database backups require independent verification.
 
-## SAFETY / LIMITATIONS
+For prototype setup and operating instructions, see [Legacy prototype guide](docs/LEGACY_PROTOTYPE_GUIDE.md).
 
-- The backup directory is not automatically zipped. It is safer for large SQL/project files; you can compress it afterward.
-- Backup might contain personal browsing history, SQL data, project .env files, SSH keys and confidential information. Use encrypted offline/external storage; never push it to public GitHub.
-- No disk formatting, deletion of old Windows or automatic SQL importing is performed.
-- Closing the GUI does not cancel a running background backup.
-- Detailed job logs and status files live under toolkit/_runtime.
-- Full disk imaging and tested restores are still recommended for complete machine recovery. WSL distro, Docker, software license state, certificates, hardware drivers, and all system-wide environment variables are not included.
+## Product direction
 
-Version 1.0.
+The Rust desktop application is planned around four capabilities:
+
+**Selective migration.** Discover installed software, distinguish reinstallable packages from manual installations, and apply version-aware backup rules for settings, tools, and projects.
+
+**Reliable recovery.** Create portable archives with integrity verification, inspect backups before restoring, and report conflicts or unsupported operations explicitly.
+
+**Cloud backup.** Optionally upload an encrypted backup to an authorized Google Drive account, with resumable transfers and a path to cloud recovery.
+
+**Driver management.** Inspect device and driver status, preserve third-party driver packages, and evaluate updates with compatibility and recovery safeguards before any installation.
+
+The objective is a focused Windows utility, not a replacement for complete disk imaging or specialized disaster-recovery systems.
+
+## Technology
+
+| Layer | Technology |
+| --- | --- |
+| Desktop application (in development) | Rust, Tauri 2 |
+| Interface (in development) | React, TypeScript |
+| Windows integration | Windows APIs, WinGet, driver and device-management facilities |
+| Existing prototype | PowerShell 5.1, Windows Forms |
+
+## Development
+
+The current prototype can be explored on Windows by opening `Launch DevMove.bat` from the repository root. It does not require the Rust toolchain.
+
+Development milestones and architecture notes are tracked in the [roadmap](ROADMAP.md), [open-source research](docs/OPEN_SOURCE_RESEARCH.md), and [cloud backup design](docs/CLOUD_BACKUP_ARCHITECTURE.md). Work on the new desktop application is tracked in [GitHub Issues](https://github.com/rijonrrb/DevMove/issues).
+
+There is no stable release yet. Do not rely on this repository as the sole backup of data you cannot afford to lose.
+
+## Safety and privacy
+
+DevMove will not attempt to extract encrypted browser session credentials or bypass sign-in protections. Backups of project files, SSH keys, SQL databases, and browsing history can be sensitive; store them securely and test actual restoration before wiping a drive.
+
+The repository does not include personal backup archives, OAuth tokens, database contents, or other machine-specific secrets.
+
+## Contributions
+
+Feedback, bug reports, and scoped feature proposals are welcome through [GitHub Issues](https://github.com/rijonrrb/DevMove/issues). Please include reproduction steps and expected behavior where applicable. Contributions should not include credentials, user data, or proprietary driver binaries.
