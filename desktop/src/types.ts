@@ -1,5 +1,5 @@
 export type Section = 'overview' | 'backup' | 'applications' | 'drivers' | 'cloud' | 'restore' | 'history' | 'settings'
-export type ModuleId = 'apps' | 'vscode' | 'chrome' | 'git' | 'node' | 'projects'
+export type ModuleId = 'apps' | 'vscode' | 'chrome' | 'git' | 'node' | 'projects' | 'sql'
 
 export interface InstalledApp {
   name: string
@@ -39,6 +39,7 @@ export interface BackupRequest {
   modules: ModuleId[]
   appIds: string[]
   customFolders: string[]
+  sqlFiles: string[]
 }
 
 export interface BackupResult {
@@ -61,6 +62,7 @@ export interface RestorePreview {
   totalBytes: number
   wingetPackageIds: string[]
   manualInstallations: string[]
+  sqlExports: string[]
   warnings: string[]
 }
 

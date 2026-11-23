@@ -12,9 +12,9 @@ The project is designed primarily for Windows users and developers who rely on c
 
 ## Rust desktop preview
 
-The new Windows application is being built in [desktop/](desktop/README.md). The initial development preview provides a searchable software inventory, read-only driver diagnostics and third-party driver export, selected project-folder and configuration ZIP backups, safe extraction into a new folder, a read-only restore preview of application lists, and per-file SHA-256 verification. The ZIP contains a limited set of configuration files and package metadata, not installed program binaries.
+The new Windows application is being built in [desktop/](desktop/README.md). The initial development preview provides a searchable software inventory, read-only driver diagnostics and third-party driver export, selected project-folder and configuration ZIP backups, explicitly chosen existing SQL export files, safe extraction into a new folder, a read-only restore preview of applications and SQL files, and per-file SHA-256 verification. The ZIP contains a limited set of configuration files and package metadata, not installed program binaries.
 
-**This is an unreleased development preview, not a migration-ready product.** Database export, cloud upload, automatic restoration into Windows, and driver updates have not yet been implemented in Rust. Verified archives can be extracted to a separate staging folder.
+**This is an unreleased development preview, not a migration-ready product.** Direct database dumps, cloud upload, automatic restoration into Windows, and driver updates have not yet been implemented in Rust. Verified archives can be extracted to a separate staging folder.
 
 ## Current prototype
 

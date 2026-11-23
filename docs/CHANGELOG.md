@@ -1,5 +1,13 @@
 # DevMove preview changelog
 
+## Unreleased (after 0.1.1)
+
+- Allow explicit selection of existing .sql/.sql.gz export files for inclusion in checksum-verified ZIP backups. No MySQL connection or credentials are used.
+- Show recorded SQL export paths in the read-only restore preview; extract them only into a new staging folder.
+- Add input validation for ordinary SQL files, disallow symbolic links and duplicates, and test SQL archive/verification/extraction with disposable fixtures.
+
+Direct database dumping/import, encryption, cloud backup and full migration remain future work.
+
 ## 0.1.1 — 2026-11-23 (Developer preview)
 
 - Add explicit selection of project folders for local ZIP backup. Skip common secrets, generated dependencies and symlinks; reject overlapping source/destination trees and display exclusions.

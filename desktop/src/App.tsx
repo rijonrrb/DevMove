@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import {
   createArchive, desktopAvailable, exportInstalledDrivers, extractArchive, inspectArchive, scanDeviceDrivers, scanInstalledApps,
-  selectArchive, selectDirectory,
+  selectArchive, selectDirectory, selectSqlExports,
 } from './native'
 import type {
   AppScan, BackupResult, DriverExportResult, DriverScan, ExtractionResult, RestorePreview, ModuleId, Section,
@@ -36,6 +36,7 @@ const modules: { id: ModuleId; name: string; details: string; icon: ElementType 
   { id: 'git', name: 'Git configuration', details: 'Global Git configuration and ignore rules', icon: Terminal },
   { id: 'node', name: 'Developer tool versions', details: 'Installed Node.js, npm, PHP and Git versions', icon: Cpu },
   { id: 'projects', name: 'My project folders', details: 'Explicitly selected source folders, excluding dependencies and secrets', icon: FolderOpen },
+  { id: 'sql', name: 'Existing SQL database exports', details: 'Selected .sql / .sql.gz files; no connection to MySQL or XAMPP', icon: Database },
 ]
 
 type Activity = { title: string; detail: string; time: string; success: boolean }
@@ -56,6 +57,7 @@ function App() {
   const [onlySupported, setOnlySupported] = useState(false)
   const [destination, setDestination] = useState('')
   const [customFolders, setCustomFolders] = useState<string[]>([])
+  const [sqlFiles, setSqlFiles] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
   const [recentBackup, setRecentBackup] = useState<BackupResult | null>(null)
@@ -147,6 +149,20 @@ function App() {
   const removeProjectFolder = (path: string) => {
     setCustomFolders((previous) => previous.filter((folder) => folder !== path))
   }
+  const addSqlExports = async () => {
+    if (!desktopAvailable || busy) return
+    try {
+      const selected = await selectSqlExports()
+      if (selected.length === 0) return
+      const combined = [...sqlFiles, ...selected].filter((name, index, all) => all.findIndex((p) => p.toLowerCase() === name.toLowerCase()) === index)
+      if (combined.length > 12) {
+        setMessage({ text: 'Select no more than 12 SQL exports per backup.', error: true })
+        return
+      }
+      setSqlFiles(combined)
+      setSelectedModules((prev) => new Set([...prev, 'sql']))
+    } catch (err) { setMessage({ text: getError(err), error: true }) }
+  }
   const pickDestination = async () => {
     try {
       const folder = await selectDirectory()
@@ -167,6 +183,10 @@ function App() {
       setMessage({ text: 'Add at least one project folder or deselect My project folders.', error: true })
       return
     }
+    if (selectedModules.has('sql') && sqlFiles.length === 0) {
+      setMessage({ text: 'Choose existing .sql or .sql.gz exports or deselect the SQL module.', error: true })
+      return
+    }
     setBusy('Creating and verifying ZIP archive')
     setMessage(null)
     try {
@@ -175,6 +195,7 @@ function App() {
         modules: Array.from(selectedModules),
         appIds: [...selectedIds],
         customFolders,
+        sqlFiles: selectedModules.has('sql') ? sqlFiles : [],
       })
       setRecentBackup(result)
       addEvent('Local archive verified', result.archivePath)
@@ -337,7 +358,19 @@ function App() {
                     </label>
                   ))}
                 </div>
-                <div className="project-picker"><div className="project-picker-header"><div><strong>Selected project folders</strong><small>Up to 8 folders · no automatic disk-wide scan</small></div><button className="btn btn-secondary" type="button" onClick={addProjectFolder} disabled={!desktopAvailable || !!busy}><FolderOpen size={15}/> Add folder</button></div>{customFolders.length === 0 ? <p>No project folders selected.</p> : customFolders.map((folder) => <div className="project-folder" key={folder}><Folder size={17}/><span title={folder}>{folder}</span><button type="button" aria-label={'Remove ' + folder} onClick={() => removeProjectFolder(folder)}><X size={16}/></button></div>)}<p className="project-caution">Dependencies, generated files, common credentials and links are excluded. ZIP backups are not encrypted; review their contents before sharing.</p></div><div className="unavailable-module"><Database size={18}/><div><strong>XAMPP database export and automatic project restore</strong><small>Planned for a later, independently tested build.</small></div><span>Planned</span></div>
+                <div className="project-picker"><div className="project-picker-header"><div><strong>Selected project folders</strong><small>Up to 8 folders · no automatic disk-wide scan</small></div><button className="btn btn-secondary" type="button" onClick={addProjectFolder} disabled={!desktopAvailable || !!busy}><FolderOpen size={15}/> Add folder</button></div>{customFolders.length === 0 ? <p>No project folders selected.</p> : customFolders.map((folder) => <div className="project-folder" key={folder}><Folder size={17}/><span title={folder}>{folder}</span><button type="button" aria-label={'Remove ' + folder} onClick={() => removeProjectFolder(folder)}><X size={16}/></button></div>)}<p className="project-caution">Dependencies, generated files, common credentials and links are excluded. ZIP backups are not encrypted; review their contents before sharing.</p></div><div className="project-picker">
+                  <div className="project-picker-header">
+                    <div><strong>Existing SQL exports</strong><small>Choose up to 12 .sql or .sql.gz files</small></div>
+                    <button className="btn btn-secondary" type="button" onClick={addSqlExports} disabled={!desktopAvailable || !!busy}><Database size={15}/> Add SQL file</button>
+                  </div>
+                  {sqlFiles.length === 0 ? <p>No SQL export files selected.</p> : sqlFiles.map((file) =>
+                    <div className="project-folder" key={file}><Database size={17}/><span title={file}>{file}</span>
+                      <button type="button" aria-label={'Remove ' + file} onClick={() => setSqlFiles((files) => files.filter((f) => f !== file))}><X size={16}/></button>
+                    </div>
+                  )}
+                  <p className="project-caution">Only files that you explicitly select are copied. No MySQL connection is made. SQL files can contain private data and backups are not encrypted.</p>
+                </div>
+                <div className="unavailable-module"><Database size={18}/><div><strong>Live XAMPP database dump and automatic import</strong><small>Direct MySQL export and restore remain in development.</small></div><span>Planned</span></div>
               </section>
               <section className="panel right-panel">
                 <div className="panel-head"><h2>Destination</h2><HardDrive color="#7b8794" size={20} /></div>
@@ -354,6 +387,7 @@ function App() {
                 <div className="summary-line"><span>Archive format</span><strong>ZIP · SHA-256 verified</strong></div>
                 <div className="summary-line"><span>Software selection</span><strong>{selectedIds.size} chosen</strong></div>
                 <div className="summary-line"><span>Project folders</span><strong>{selectedModules.has('projects') ? customFolders.length : 0} selected</strong></div>
+                <div className="summary-line"><span>SQL exports</span><strong>{selectedModules.has('sql') ? sqlFiles.length : 0} selected</strong></div>
                 <div className="summary-line"><span>Privacy</span><strong>Local, unencrypted</strong></div>
                 <div className="warning-plain"><AlertCircle size={16}/> ZIP archives are not encrypted in this build. Do not upload them publicly or store sensitive data without protection.</div>
                 <button className="btn btn-primary btn-full" disabled={!desktopAvailable || !!busy || !destination.trim()} onClick={runBackup}>
@@ -476,6 +510,13 @@ function App() {
                     : <div className="restore-package-list">{restorePreview.manualInstallations.slice(0, 10).map((name, i) => <div key={i} className="restore-package">{name}</div>)}{restorePreview.manualInstallations.length > 10 && <small>+ {restorePreview.manualInstallations.length - 10} additional entries</small>}</div>}
                 </div>
               </div>
+              {restorePreview.sqlExports.length > 0 && <div className="restore-plan-col sql-preview">
+                <h3><Database size={17}/> SQL export files <span>{restorePreview.sqlExports.length}</span></h3>
+                <p>These are existing database exports copied into the ZIP. They can be extracted for manual import, but DevMove does not verify or restore their database contents.</p>
+                <div className="restore-package-list">
+                  {restorePreview.sqlExports.map((path) => <div key={path} className="restore-package">{path}</div>)}
+                </div>
+              </div>}
               {restorePreview.warnings.length > 0 && <div className="backup-warnings"><AlertCircle size={16}/><div><strong>Archive notes and exclusions</strong>{restorePreview.warnings.map((warning, i) => <p key={i}>{warning}</p>)}</div></div>}
             </section>}
             <div className="notice muted-notice"><Info size={18}/> This plan is read-only. You can extract to a new staging folder, but no apps are installed and no existing Windows settings are changed. Full automated restore and database import are still in development.</div>

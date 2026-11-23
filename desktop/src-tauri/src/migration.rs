@@ -61,6 +61,8 @@ pub struct BackupRequest {
     pub app_ids: Vec<String>,
     #[serde(default)]
     pub custom_folders: Vec<String>,
+    #[serde(default)]
+    pub sql_files: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -420,7 +422,7 @@ fn create_backup_inner(request: BackupRequest) -> Result<BackupResult, String> {
     if request.modules.is_empty() {
         return Err("Select at least one backup category".to_owned());
     }
-    let allowed: HashSet<&str> = ["apps", "vscode", "chrome", "git", "node", "projects"]
+    let allowed: HashSet<&str> = ["apps", "vscode", "chrome", "git", "node", "projects", "sql"]
         .into_iter()
         .collect();
     if request
@@ -433,6 +435,7 @@ fn create_backup_inner(request: BackupRequest) -> Result<BackupResult, String> {
         );
     }
     let project_folders = validate_project_folders(&request, &destination)?;
+    let sql_exports = validate_sql_exports(&request)?;
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S_%3f").to_string();
     let filename = format!("DevMove_{timestamp}.zip");
     let archive_path = destination.join(filename);
@@ -575,6 +578,10 @@ fn create_backup_inner(request: BackupRequest) -> Result<BackupResult, String> {
             for (index, source) in project_folders.iter().enumerate() {
                 add_project_tree(&mut zip, source, index, &mut files, &mut warnings)?;
             }
+        }
+        if modules.contains("sql") {
+            add_sql_exports(&mut zip, &sql_exports, &mut files, &mut warnings)?;
+            warnings.push("SQL exports are copied as files; database servers are not queried and imports are manual.".into());
         }
         if files.is_empty() {
             warnings.push("No source files were found for the selected categories".into());
@@ -1128,6 +1135,7 @@ mod project_tests {
             modules: vec!["projects".into()],
             app_ids: Vec::new(),
             custom_folders: vec![source.to_string_lossy().to_string()],
+            sql_files: Vec::new(),
         };
         let folders = validate_project_folders(&request, &dest).unwrap();
         let archive = dest.join("project.zip");
@@ -1171,6 +1179,7 @@ mod project_tests {
             modules: vec!["projects".into()],
             app_ids: Vec::new(),
             custom_folders: vec![source.to_string_lossy().to_string()],
+            sql_files: Vec::new(),
         };
         assert!(validate_project_folders(&request, &destination).is_err());
         fs::remove_dir_all(base).unwrap();
@@ -1203,6 +1212,7 @@ mod project_backup_integration_tests {
             modules: vec!["projects".into()],
             app_ids: Vec::new(),
             custom_folders: vec![project.to_string_lossy().to_string()],
+            sql_files: Vec::new(),
         };
         let backup = create_backup_inner(request).unwrap();
         assert_eq!(backup.file_count, 1);
@@ -1232,6 +1242,7 @@ pub struct RestorePreview {
     pub total_bytes: u64,
     pub winget_package_ids: Vec<String>,
     pub manual_installations: Vec<String>,
+    pub sql_exports: Vec<String>,
     pub warnings: Vec<String>,
 }
 
@@ -1311,6 +1322,13 @@ fn restore_preview_inner(archive_path: &str) -> Result<RestorePreview, String> {
         .iter()
         .fold(0u64, |sum, file| sum.saturating_add(file.bytes));
 
+    let sql_exports = manifest
+        .files
+        .iter()
+        .filter(|file| file.path.starts_with("Databases/"))
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
+
     Ok(RestorePreview {
         created_at: manifest.created_at,
         modules: manifest.modules,
@@ -1318,6 +1336,7 @@ fn restore_preview_inner(archive_path: &str) -> Result<RestorePreview, String> {
         total_bytes,
         winget_package_ids: winget_packages,
         manual_installations: manual_apps,
+        sql_exports,
         warnings,
     })
 }
@@ -1380,5 +1399,137 @@ mod restore_preview_tests {
         );
         assert_eq!(plan.warnings.len(), 1);
         fs::remove_dir_all(folder).unwrap();
+    }
+}
+
+/// Only previously exported SQL files are accepted. No database is contacted
+/// and no connection credentials are requested by this preview feature.
+fn validate_sql_exports(request: &BackupRequest) -> Result<Vec<PathBuf>, String> {
+    if !request.modules.iter().any(|module| module == "sql") {
+        return Ok(Vec::new());
+    }
+    if request.sql_files.is_empty() {
+        return Err("Select at least one existing .sql or .sql.gz export file".into());
+    }
+    if request.sql_files.len() > 12 {
+        return Err("Select no more than 12 SQL export files per archive".into());
+    }
+    let mut seen = HashSet::new();
+    let mut paths = Vec::new();
+    for value in &request.sql_files {
+        let path = PathBuf::from(value);
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|e| format!("SQL export file is inaccessible: {e}"))?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(
+                "SQL exports must be ordinary files, not directories or symbolic links".into(),
+            );
+        }
+        let canonical = path.canonicalize().map_err(|e| e.to_string())?;
+        let name = canonical
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("Invalid SQL export filename")?;
+        let lower = name.to_ascii_lowercase();
+        if !lower.ends_with(".sql") && !lower.ends_with(".sql.gz") {
+            return Err(format!(
+                "Unsupported SQL export file: {name} (use .sql or .sql.gz)"
+            ));
+        }
+        if !seen.insert(canonical.to_string_lossy().to_lowercase()) {
+            return Err(format!("SQL export selected more than once: {name}"));
+        }
+        paths.push(canonical);
+    }
+    Ok(paths)
+}
+
+fn add_sql_exports(
+    zip: &mut ZipWriter<File>,
+    sources: &[PathBuf],
+    files: &mut Vec<ArchivedFile>,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
+    for (index, source) in sources.iter().enumerate() {
+        let name = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("Invalid SQL export filename")?;
+        let sanitized: String = name
+            .chars()
+            .take(140)
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let member = format!("Databases/{:02}_{}", index + 1, sanitized);
+        let before = files.len();
+        add_file(zip, source, member, files, warnings)?;
+        if files.len() != before + 1 {
+            return Err(format!("Selected SQL export became unavailable: {name}"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod sql_export_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_sql_exports_verify_restore_and_preview() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("devmove-sql-test-{stamp}"));
+        let source = root.join("source");
+        let dest = root.join("backups");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        let one = source.join("academy.sql");
+        let two = source.join("website.sql.gz");
+        let forbidden = source.join("credentials.env");
+        fs::write(&one, b"CREATE TABLE fixtures (id INT);").unwrap();
+        fs::write(&two, b"fixture gzip contents").unwrap();
+        fs::write(&forbidden, b"DO_NOT_INCLUDE=1").unwrap();
+
+        let mut request = BackupRequest {
+            destination: dest.to_string_lossy().into(),
+            modules: vec!["sql".into()],
+            app_ids: Vec::new(),
+            custom_folders: Vec::new(),
+            sql_files: vec![forbidden.to_string_lossy().into()],
+        };
+        assert!(validate_sql_exports(&request).is_err());
+        request.sql_files = vec![one.to_string_lossy().into(), two.to_string_lossy().into()];
+        let created = create_backup_inner(request).unwrap();
+        assert_eq!(created.file_count, 2);
+        assert!(verify_backup_inner(&created.archive_path).unwrap().verified);
+        let preview = restore_preview_inner(&created.archive_path).unwrap();
+        assert_eq!(preview.sql_exports.len(), 2);
+        assert!(
+            preview
+                .sql_exports
+                .iter()
+                .any(|f| f.ends_with("_academy.sql"))
+        );
+        assert!(!preview.sql_exports.iter().any(|f| f.contains(".env")));
+        let recovered =
+            extract_archive_inner(&created.archive_path, &root.to_string_lossy()).unwrap();
+        let extracted = PathBuf::from(recovered.output_directory);
+        assert_eq!(
+            fs::read(extracted.join("Databases/01_academy.sql")).unwrap(),
+            b"CREATE TABLE fixtures (id INT);"
+        );
+        assert_eq!(
+            fs::read(extracted.join("Databases/02_website.sql.gz")).unwrap(),
+            b"fixture gzip contents"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }
