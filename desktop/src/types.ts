@@ -42,6 +42,12 @@ export interface BackupResult {
   warnings: string[]
 }
 
+export interface ExtractionResult {
+  outputDirectory: string
+  filesExtracted: number
+  bytesWritten: number
+}
+
 export interface Verification {
   verified: boolean
   filesChecked: number

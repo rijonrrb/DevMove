@@ -8,7 +8,8 @@ pub fn run() {
             migration::scan_apps,
             migration::scan_drivers,
             migration::create_backup,
-            migration::verify_backup
+            migration::verify_backup,
+            migration::extract_archive
         ])
         .run(tauri::generate_context!())
         .expect("Failed to launch DevMove");

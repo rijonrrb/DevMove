@@ -8,11 +8,11 @@ import {
   RotateCcw, ScanLine, Search, Settings2, ShieldCheck, Terminal, X,
 } from 'lucide-react'
 import {
-  createArchive, desktopAvailable, scanDeviceDrivers, scanInstalledApps,
+  createArchive, desktopAvailable, extractArchive, scanDeviceDrivers, scanInstalledApps,
   selectArchive, selectDirectory, verifyArchive,
 } from './native'
 import type {
-  AppScan, BackupResult, DriverScan, ModuleId, Section,
+  AppScan, BackupResult, DriverScan, ExtractionResult, ModuleId, Section,
   Verification,
 } from './types'
 import './App.css'
@@ -57,6 +57,8 @@ function App() {
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
   const [recentBackup, setRecentBackup] = useState<BackupResult | null>(null)
   const [verification, setVerification] = useState<Verification | null>(null)
+  const [verifiedArchivePath, setVerifiedArchivePath] = useState<string | null>(null)
+  const [extraction, setExtraction] = useState<ExtractionResult | null>(null)
   const [events, setEvents] = useState<Activity[]>([])
   const filteredApps = useMemo(() => (apps?.apps ?? []).filter((app) =>
     (!onlySupported || app.supported) &&
@@ -144,11 +146,14 @@ function App() {
     if (!desktopAvailable || busy) return
     setBusy('Verifying local archive')
     setVerification(null)
+    setVerifiedArchivePath(null)
+    setExtraction(null)
     try {
       const path = await selectArchive()
       if (!path) return
       const result = await verifyArchive(path)
       setVerification(result)
+      if (result.verified) setVerifiedArchivePath(path)
       addEvent(result.verified ? 'Archive verified' : 'Archive verification failed',
         path, result.verified)
       setMessage({ text: result.verified
@@ -156,6 +161,21 @@ function App() {
         : result.errors.join('; '), error: !result.verified })
     } catch (err) { setMessage({ text: getError(err), error: true }) }
     finally { setBusy(null) }
+  }
+  const runExtract = async () => {
+    if (!desktopAvailable || busy || !verifiedArchivePath || !verification?.verified) return
+    try {
+      const folder = await selectDirectory()
+      if (!folder) return
+      setBusy('Extracting to a new recovery folder')
+      const result = await extractArchive(verifiedArchivePath, folder)
+      setExtraction(result)
+      addEvent('Archive extracted', result.outputDirectory)
+      setMessage({ text: 'Recovered ' + result.filesExtracted + ' files to a separate folder. Nothing was applied to Windows automatically.', error: false })
+    } catch (err) {
+      setMessage({ text: getError(err), error: true })
+      addEvent('Extraction failed', getError(err), false)
+    } finally { setBusy(null) }
   }
   const heading = nav.find((item) => item.key === page)?.text ?? 'Overview'
 
@@ -379,13 +399,15 @@ function App() {
             <section className="panel restore-panel"><div className="restore-symbol"><ArrowDownToLine size={27}/></div>
               <div><h2>Archive integrity check</h2>
                 <p>Choose an archive created with DevMove. Verification does not modify files on this PC.</p>
+                {verification?.verified && <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={runExtract}><FolderOpen size={16}/>Extract to a new folder</button>}
+                {extraction && <div className="backup-result"><CheckCircle2 size={18}/><div><strong>{extraction.filesExtracted} files extracted</strong><small>{formatBytes(extraction.bytesWritten)} · No Windows settings changed</small><span title={extraction.outputDirectory}>{extraction.outputDirectory}</span></div></div>}
                 {verification && <div className={'verify-outcome ' + (verification.verified ? '' : 'verify-fail')}>
                   {verification.verified ? <CheckCircle2 size={20}/> : <AlertCircle size={20}/>}
                   {verification.verified ? verification.filesChecked + ' files verified successfully.' : verification.errors.join('; ')}
                 </div>}
               </div>
             </section>
-            <div className="notice muted-notice"><Info size={18}/> Selective file restore, WinGet reinstall orchestration and database import are not yet implemented in the Rust build. Keep your older system intact until a test restore succeeds.</div>
+            <div className="notice muted-notice"><Info size={18}/> Extracting files into a separate folder is supported. Installing apps, applying settings to Windows, and database import are not yet implemented. Keep your older system intact until a full test restore succeeds.</div>
           </>}
           {page === 'history' && <>
             <PageHead kicker="CURRENT SESSION" title="Activity log" desc="A record of scans, backups and checks performed during this app session. Persistent history is planned." />

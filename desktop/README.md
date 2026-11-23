@@ -28,11 +28,12 @@ The browser preview intentionally does not fabricate app or driver data. Native 
 - Driver diagnostics: read-only signed-driver inventory and Windows PnP problem codes.
 - Local archive: selected VS Code settings, Chrome bookmarks/history (when accessible), Git config, tool versions, and selected application manifests.
 - ZIP verification: SHA-256 digests for each file and readable archive validation.
+- Safe ZIP extraction: recover recorded files into a new staging folder without overwriting Windows settings.
 - Native destination picker and on-screen status/error feedback.
 
 ## Not yet implemented
 
-- Restoring files or installing packages from the ZIP in the new Rust application.
+- Automatically applying extracted settings or installing packages into Windows from an archive.
 - XAMPP database dumps and project folder migration in the new Rust application.
 - Google Drive OAuth, encryption, cloud transfer, incremental snapshots, and schedules.
 - Automatic driver updates, compatibility checks, and restore-point creation.

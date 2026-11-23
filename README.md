@@ -14,7 +14,7 @@ The project is designed primarily for Windows users and developers who rely on c
 
 The new Windows application is being built in [desktop/](desktop/README.md). The initial development preview provides a searchable software inventory, read-only driver diagnostics, selective local ZIP exports, and per-file SHA-256 archive verification. The ZIP contains a limited set of configuration files and package metadata, not installed program binaries.
 
-**This is an unreleased development preview, not a migration-ready product.** Database export, cloud upload, file restoration, and driver updates have not yet been implemented in Rust.
+**This is an unreleased development preview, not a migration-ready product.** Database export, cloud upload, automatic restoration into Windows, and driver updates have not yet been implemented in Rust. Verified archives can be extracted to a separate staging folder.
 
 ## Current prototype
 

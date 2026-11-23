@@ -523,6 +523,88 @@ mod tests {
         let check = verify_backup_inner(archive.to_str().unwrap()).unwrap();
         assert!(check.verified, "{:?}", check.errors);
         assert_eq!(check.files_checked, 1);
+        let restored = extract_archive_inner(archive.to_str().unwrap(), dir.to_str().unwrap()).unwrap();
+        assert_eq!(restored.files_extracted, 1);
+        assert_eq!(fs::read(PathBuf::from(restored.output_directory).join("sample.txt")).unwrap(), b"DevMove archive integrity test");
         fs::remove_dir_all(&dir).unwrap();
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractResult {
+    pub output_directory: String,
+    pub files_extracted: usize,
+    pub bytes_written: u64,
+}
+
+fn extract_archive_inner(archive_path: &str, base_directory: &str) -> Result<ExtractResult, String> {
+    let verification = verify_backup_inner(archive_path)?;
+    if !verification.verified {
+        return Err(format!("Archive checksum verification failed: {}", verification.errors.join("; ")));
+    }
+    let base = PathBuf::from(base_directory);
+    if !base.is_dir() {
+        return Err("Choose an existing extraction destination folder".into());
+    }
+    let stamp = Utc::now().format("%Y%m%d_%H%M%S_%3f").to_string();
+    let output = base.join(format!("DevMove_Extracted_{stamp}"));
+    fs::create_dir(&output).map_err(|e| format!("Cannot create extraction folder: {e}"))?;
+
+    let result = (|| -> Result<(usize, u64), String> {
+        let mut zip = ZipArchive::new(File::open(archive_path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let manifest: ArchiveManifest = {
+            let mut entry = zip.by_name("manifest.json").map_err(|e| e.to_string())?;
+            let mut buffer = Vec::new();
+            entry.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+            serde_json::from_slice(&buffer).map_err(|e| e.to_string())?
+        };
+
+        let mut extracted = 0usize;
+        let mut copied = 0u64;
+        for record in manifest.files {
+            if record.path.starts_with('/') || record.path.contains('\\')
+                || record.path.split('/').any(|segment| segment == ".." || segment == ".")
+            {
+                return Err(format!("Refusing unsafe archive path: {}", record.path));
+            }
+
+            let mut entry = zip.by_name(&record.path).map_err(|e| e.to_string())?;
+            let safe_path = entry.enclosed_name()
+                .ok_or_else(|| format!("Refusing unsafe archive entry: {}", record.path))?;
+            let target = output.join(safe_path);
+            if !target.starts_with(&output) { return Err("Archive path escaped destination".into()); }
+
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            // create_new protects any existing file from accidental overwrites.
+            let mut file = File::options().write(true).create_new(true)
+                .open(&target).map_err(|e| format!("Cannot create {}: {e}", record.path))?;
+            let count = std::io::copy(&mut entry, &mut file).map_err(|e| e.to_string())?;
+            if count != record.bytes { return Err(format!("Incomplete extraction: {}", record.path)); }
+            extracted += 1;
+            copied += count;
+        }
+        Ok((extracted, copied))
+    })();
+    match result {
+        Ok((files_extracted, bytes_written)) => Ok(ExtractResult {
+            output_directory: output.to_string_lossy().to_string(),
+            files_extracted,
+            bytes_written,
+        }),
+        Err(err) => Err(format!("{err}. Partial extraction, if any: {}", output.display())),
+    }
+}
+
+/// Extracts backup contents to a NEW staging directory, without changing OS settings.
+#[tauri::command]
+pub async fn extract_archive(
+    archive_path: String,
+    destination: String,
+) -> Result<ExtractResult, String> {
+    tauri::async_runtime::spawn_blocking(move || extract_archive_inner(&archive_path, &destination))
+        .await.map_err(|e| e.to_string())?
 }
