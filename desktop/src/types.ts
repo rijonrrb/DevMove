@@ -54,6 +54,16 @@ export interface ExtractionResult {
   bytesWritten: number
 }
 
+export interface RestorePreview {
+  createdAt: string
+  modules: string[]
+  fileCount: number
+  totalBytes: number
+  wingetPackageIds: string[]
+  manualInstallations: string[]
+  warnings: string[]
+}
+
 export interface Verification {
   verified: boolean
   filesChecked: number
