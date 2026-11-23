@@ -209,21 +209,23 @@ fn text_field(v: &Value, key: &str) -> String {
 }
 
 fn scan_drivers_inner() -> Result<DriverScan, String> {
-    let command = "$ErrorActionPreference='Stop'; $ds=@(Get-CimInstance Win32_PnPSignedDriver | Select-Object DeviceName,Manufacturer,DriverProviderName,DriverVersion,DeviceID,InfName); $bad=@(Get-CimInstance Win32_PnPEntity | Where-Object { $_.ConfigManagerErrorCode -ne 0 } | Select-Object DeviceID,ConfigManagerErrorCode); @{devices=$ds;issues=$bad} | ConvertTo-Json -Depth 5 -Compress";
+    let command = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $ErrorActionPreference='Stop'; $ds=@(Get-CimInstance Win32_PnPSignedDriver | Select-Object DeviceName,Manufacturer,DriverProviderName,DriverVersion,DeviceID,InfName); $bad=@(Get-CimInstance Win32_PnPEntity | Where-Object { $null -ne $_.ConfigManagerErrorCode -and $_.ConfigManagerErrorCode -ne 0 } | Select-Object DeviceID,Name,Manufacturer,ConfigManagerErrorCode); @{devices=$ds;issues=$bad} | ConvertTo-Json -Depth 5 -Compress";
     let root = ps_output(command)?;
     let mut problems = BTreeMap::new();
     if let Some(values) = root.get("issues").and_then(Value::as_array) {
         for v in values {
             if let Some(id) = v.get("DeviceID").and_then(Value::as_str) {
                 let code = v.get("ConfigManagerErrorCode").and_then(Value::as_i64).unwrap_or(0);
-                problems.insert(id.to_string(), code);
+                problems.insert(id.to_string(), (text_field(v, "Name"), text_field(v, "Manufacturer"), code));
             }
         }
     }
     let mut devices = Vec::new();
+    let mut known_device_ids = HashSet::new();
     if let Some(values) = root.get("devices").and_then(Value::as_array) {
         for item in values {
             let id = text_field(item, "DeviceID");
+            known_device_ids.insert(id.clone());
             let name = text_field(item, "DeviceName");
             if name.trim().is_empty() { continue }
             devices.push(Driver {
@@ -231,10 +233,23 @@ fn scan_drivers_inner() -> Result<DriverScan, String> {
                 provider: text_field(item, "DriverProviderName"),
                 version: text_field(item, "DriverVersion"),
                 inf: text_field(item, "InfName"),
-                problem_code: *problems.get(&id).unwrap_or(&0),
+                problem_code: problems.get(&id).map(|p| p.2).unwrap_or(0),
                 device_id: id,
             });
         }
+    }
+    // Devices without a signed driver can still be reported as missing by Windows.
+    for (id, (name, manufacturer, problem_code)) in &problems {
+        if known_device_ids.contains(id) { continue }
+        devices.push(Driver {
+            name: if name.trim().is_empty() { "Unknown device".into() } else { name.clone() },
+            manufacturer: manufacturer.clone(),
+            provider: "Driver not detected".into(),
+            version: String::new(),
+            device_id: id.clone(),
+            inf: String::new(),
+            problem_code: *problem_code,
+        });
     }
     devices.sort_by(|a,b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(DriverScan { issues: problems.len(), devices })
@@ -606,5 +621,55 @@ pub async fn extract_archive(
     destination: String,
 ) -> Result<ExtractResult, String> {
     tauri::async_runtime::spawn_blocking(move || extract_archive_inner(&archive_path, &destination))
+        .await.map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverExportResult {
+    pub output_directory: String,
+    pub packages_exported: usize,
+}
+
+fn export_drivers_inner(destination: &str) -> Result<DriverExportResult, String> {
+    let parent = PathBuf::from(destination);
+    if !parent.is_dir() {
+        return Err("Choose an existing destination directory for driver packages".into());
+    }
+    let stamp = Utc::now().format("%Y%m%d_%H%M%S_%3f").to_string();
+    let output = parent.join(format!("DevMove_Drivers_{stamp}"));
+    fs::create_dir(&output).map_err(|e| format!("Cannot create driver backup directory: {e}"))?;
+
+    // PnPUtil is a Windows-included driver store tool; export does not install
+    // or replace any device driver. Only third-party driver packages are exported.
+    let result = Command::new("pnputil.exe")
+        .arg("/export-driver")
+        .arg("*")
+        .arg(&output)
+        .output()
+        .map_err(|e| format!("Windows PnPUtil is unavailable: {e}"))?;
+    if !result.status.success() {
+        return Err(format!(
+            "Windows driver export failed (exit {:?}). Administrator permission may be required. Partial output: {}",
+            result.status.code(),
+            output.display()
+        ));
+    }
+    let packages = fs::read_dir(&output).map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .count();
+    if packages == 0 {
+        return Err("Windows reported no exported third-party driver packages".into());
+    }
+    Ok(DriverExportResult {
+        output_directory: output.to_string_lossy().to_string(),
+        packages_exported: packages,
+    })
+}
+
+#[tauri::command]
+pub async fn export_drivers(destination: String) -> Result<DriverExportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || export_drivers_inner(&destination))
         .await.map_err(|e| e.to_string())?
 }

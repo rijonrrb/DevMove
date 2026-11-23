@@ -8,11 +8,11 @@ import {
   RotateCcw, ScanLine, Search, Settings2, ShieldCheck, Terminal, X,
 } from 'lucide-react'
 import {
-  createArchive, desktopAvailable, extractArchive, scanDeviceDrivers, scanInstalledApps,
+  createArchive, desktopAvailable, exportInstalledDrivers, extractArchive, scanDeviceDrivers, scanInstalledApps,
   selectArchive, selectDirectory, verifyArchive,
 } from './native'
 import type {
-  AppScan, BackupResult, DriverScan, ExtractionResult, ModuleId, Section,
+  AppScan, BackupResult, DriverExportResult, DriverScan, ExtractionResult, ModuleId, Section,
   Verification,
 } from './types'
 import './App.css'
@@ -47,6 +47,7 @@ function App() {
   const [page, setPage] = useState<Section>('overview')
   const [apps, setApps] = useState<AppScan | null>(null)
   const [drivers, setDrivers] = useState<DriverScan | null>(null)
+  const [driverExport, setDriverExport] = useState<DriverExportResult | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [selectedModules, setSelectedModules] = useState<Set<ModuleId>>(new Set(['apps', 'vscode', 'chrome', 'git', 'node']))
   const [appSearch, setAppSearch] = useState('')
@@ -102,12 +103,28 @@ function App() {
       if (kind === 'drivers' || kind === 'all') {
         const result = await scanDeviceDrivers()
         setDrivers(result)
-        addEvent('Driver inventory complete', result.devices.length + ' signed-driver records')
+        addEvent('Driver inventory complete', result.devices.length + ' device and driver records')
       }
       setMessage({ text: 'System inventory refreshed successfully.', error: false })
     } catch (err) {
       setMessage({ text: getError(err), error: true })
       addEvent('Scan failed', getError(err), false)
+    } finally { setBusy(null) }
+  }
+  const runDriverExport = async () => {
+    if (!desktopAvailable || busy) return
+    try {
+      const folder = await selectDirectory()
+      if (!folder) return
+      setBusy('Exporting installed driver packages')
+      setMessage(null)
+      const result = await exportInstalledDrivers(folder)
+      setDriverExport(result)
+      addEvent('Driver package export complete', result.outputDirectory)
+      setMessage({ text: result.packagesExported + ' third-party driver packages exported successfully.', error: false })
+    } catch (err) {
+      setMessage({ text: getError(err), error: true })
+      addEvent('Driver export failed', getError(err), false)
     } finally { setBusy(null) }
   }
   const pickDestination = async () => {
@@ -354,8 +371,9 @@ function App() {
           </>}
           {page === 'drivers' && <>
             <PageHead kicker="DEVICE HEALTH" title="Driver diagnostics"
-              desc="Inspect drivers installed on this Windows PC. This release performs read-only scans; it does not download or install drivers."
-              action={<button className="btn btn-primary" disabled={!desktopAvailable || !!busy} onClick={() => runScan('drivers')}><ScanLine size={17}/>{busy || 'Scan drivers'}</button>} />
+              desc="Inspect installed drivers, identify devices reporting problems, and export available third-party packages. No driver downloads or installations."
+              action={<div className="driver-actions"><button className="btn btn-secondary" disabled={!desktopAvailable || !!busy} onClick={runDriverExport}><ArrowDownToLine size={17}/> Export driver packages</button><button className="btn btn-primary" disabled={!desktopAvailable || !!busy} onClick={() => runScan('drivers')}><ScanLine size={17}/>{busy || 'Scan drivers'}</button></div>} />
+            {driverExport && <div className="notice notice-success"><CheckCircle2 size={18}/><span>{driverExport.packagesExported} packages exported to {driverExport.outputDirectory}. No installed drivers were changed.</span></div>}
             <div className="stats drivers-stats">
               <Stat icon={MonitorCog} label="Signed driver records" value={drivers ? String(drivers.devices.length) : '—'} detail="Detected by Windows" />
               <Stat icon={AlertCircle} label="Devices reporting issues" value={drivers ? String(drivers.issues) : '—'} detail="Windows PnP status" />
@@ -375,11 +393,11 @@ function App() {
                     <div className="driver-title"><span className="device-icon"><Cpu size={17}/></span><span><strong>{device.name}</strong><small>{device.manufacturer || 'Manufacturer unavailable'}</small></span></div>
                     <div className="driver-cell">{device.provider || '—'}</div>
                     <div className="driver-cell mono">{device.version || '—'}</div>
-                    <div><span className={'source-chip ' + (device.problemCode ? 'chip-red' : 'chip-green')}>{device.problemCode ? 'Issue ' + device.problemCode : 'Reported OK'}</span></div>
+                    <div><span className={'source-chip ' + (device.problemCode ? 'chip-red' : 'chip-green')}>{device.problemCode === 28 ? 'Missing driver' : device.problemCode ? 'Issue ' + device.problemCode : 'Reported OK'}</span></div>
                   </div>
                 ))}
               </div>
-              <div className="table-footer">A newer version number alone does not prove an update is compatible. Device issues are reported by Windows; outdated-driver detection is not yet available.</div>
+              <div className="table-footer">A newer version number alone does not prove an update is compatible. Windows Code 28 typically indicates a missing driver. Driver export is read-only; automatic installation and outdated-driver detection are not yet available.</div>
             </section>
           </>}
           {page === 'cloud' && <>

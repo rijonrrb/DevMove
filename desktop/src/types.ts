@@ -24,6 +24,11 @@ export interface DriverDevice {
   problemCode: number
 }
 
+export interface DriverExportResult {
+  outputDirectory: string
+  packagesExported: number
+}
+
 export interface DriverScan {
   devices: DriverDevice[]
   issues: number
